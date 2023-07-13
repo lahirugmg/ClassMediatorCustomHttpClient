@@ -8,13 +8,16 @@ import org.apache.http.entity.StringEntity;
 import org.apache.http.impl.client.CloseableHttpClient;
 import org.apache.http.impl.client.HttpClients;
 import org.apache.http.util.EntityUtils;
+import org.apache.synapse.ManagedLifecycle;
 import org.apache.synapse.MessageContext;
 import org.apache.synapse.SynapseException;
+import org.apache.synapse.core.SynapseEnvironment;
 import org.apache.synapse.core.axis2.Axis2MessageContext;
 import org.apache.synapse.mediators.AbstractMediator;
 import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.security.KeyStore;
+
 import org.apache.axiom.om.OMElement;
 import org.apache.http.HttpResponse;
 import org.wso2.carbon.apimgt.impl.APIConstants;
@@ -22,25 +25,19 @@ import org.wso2.carbon.utils.CarbonUtils;
 
 import javax.net.ssl.SSLContext;
 
-public class CustomHttpClient extends AbstractMediator {
+
+public class CustomHttpClient extends AbstractMediator implements ManagedLifecycle {
+
+    String keyStorePath;
+
+    String keyStorePassword;
+
+    SSLContext sslContext;
 
     @Override
     public boolean mediate(MessageContext messageContext) {
 
         try {
-
-            String keyStorePath = CarbonUtils.getServerConfiguration()
-                    .getFirstProperty(APIConstants.TRUST_STORE_LOCATION);
-            String keyStorePassword = CarbonUtils.getServerConfiguration()
-                    .getFirstProperty(APIConstants.TRUST_STORE_PASSWORD);
-
-            KeyStore trustStore = KeyStore.getInstance("JKS");
-            trustStore.load(Files.newInputStream(Paths.get(keyStorePath)), keyStorePassword.toCharArray());
-
-
-
-            // Build SSL context
-            SSLContext sslContext = SSLContexts.custom().loadTrustMaterial(trustStore).build();
             // Create an HttpClient instance
             CloseableHttpClient httpClient = HttpClients.custom()
                     .setSSLContext(sslContext)
@@ -81,5 +78,29 @@ public class CustomHttpClient extends AbstractMediator {
             throw new SynapseException("Exception occured in the CustomHttpClient class mediator");
         }
         return true;
+    }
+
+    @Override
+    public void init(SynapseEnvironment synapseEnvironment) {
+
+        keyStorePath = CarbonUtils.getServerConfiguration()
+                .getFirstProperty(APIConstants.TRUST_STORE_LOCATION);
+        keyStorePassword = CarbonUtils.getServerConfiguration()
+                .getFirstProperty(APIConstants.TRUST_STORE_PASSWORD);
+
+        KeyStore trustStore = null;
+        try {
+            trustStore = KeyStore.getInstance("JKS");
+            trustStore.load(Files.newInputStream(Paths.get(keyStorePath)), keyStorePassword.toCharArray());
+            SSLContext sslContext = SSLContexts.custom().loadTrustMaterial(trustStore).build();
+
+        } catch (Exception e) {
+            throw new SynapseException(e);
+        }
+    }
+
+    @Override
+    public void destroy() {
+
     }
 }
