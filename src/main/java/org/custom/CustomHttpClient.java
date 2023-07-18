@@ -1,12 +1,20 @@
 package org.custom;
 
 import org.apache.axiom.om.OMAbstractFactory;
+import org.apache.commons.logging.Log;
+import org.apache.commons.logging.LogFactory;
 import org.apache.http.HttpEntity;
+import org.apache.http.client.config.RequestConfig;
 import org.apache.http.client.methods.HttpPost;
+import org.apache.http.config.RegistryBuilder;
+import org.apache.http.conn.socket.ConnectionSocketFactory;
+import org.apache.http.conn.ssl.SSLConnectionSocketFactory;
 import org.apache.http.conn.ssl.SSLContexts;
 import org.apache.http.entity.StringEntity;
 import org.apache.http.impl.client.CloseableHttpClient;
+import org.apache.http.impl.client.HttpClientBuilder;
 import org.apache.http.impl.client.HttpClients;
+import org.apache.http.impl.conn.PoolingHttpClientConnectionManager;
 import org.apache.http.util.EntityUtils;
 import org.apache.synapse.ManagedLifecycle;
 import org.apache.synapse.MessageContext;
@@ -14,37 +22,43 @@ import org.apache.synapse.SynapseException;
 import org.apache.synapse.core.SynapseEnvironment;
 import org.apache.synapse.core.axis2.Axis2MessageContext;
 import org.apache.synapse.mediators.AbstractMediator;
-import java.nio.file.Files;
-import java.nio.file.Paths;
+import java.io.FileInputStream;
+import java.io.IOException;
+import java.security.KeyManagementException;
 import java.security.KeyStore;
-
+import java.security.KeyStoreException;
+import java.security.NoSuchAlgorithmException;
+import java.security.cert.CertificateException;
 import org.apache.axiom.om.OMElement;
 import org.apache.http.HttpResponse;
 import org.wso2.carbon.apimgt.impl.APIConstants;
 import org.wso2.carbon.utils.CarbonUtils;
-
 import javax.net.ssl.SSLContext;
+import javax.xml.namespace.QName;
 
 
 public class CustomHttpClient extends AbstractMediator implements ManagedLifecycle {
 
-    String keyStorePath;
+    private static final Log log = LogFactory.getLog(CustomHttpClient.class);
 
-    String keyStorePassword;
+    private String maxTotal="10";
 
-    SSLContext sslContext;
+    private String defaultMaxPerRoute="10";
 
+    private String connectionTimeout = "30000";
+
+    private String connectionRequestTimeout = "30000";
+
+    private String socketTimeout = "60000";
+
+    private CloseableHttpClient httpClient;
     @Override
     public boolean mediate(MessageContext messageContext) {
 
         try {
-            // Create an HttpClient instance
-            CloseableHttpClient httpClient = HttpClients.custom()
-                    .setSSLContext(sslContext)
-                    .build();
 
             // Create an HttpPost object with the URL
-            HttpPost httpPost = new HttpPost("https://localhost:7001");
+            HttpPost httpPost = new HttpPost("https://run.mocky.io/v3/494114d0-05ef-49f6-847b-02a5ff0bb88d");
             // Set the request headers
             httpPost.setHeader("Content-Type", "text/plain");
 
@@ -66,41 +80,128 @@ public class CustomHttpClient extends AbstractMediator implements ManagedLifecyc
             HttpEntity responseEntity = response.getEntity();
             responseEntity.getContent();
             String responseBody = EntityUtils.toString(responseEntity);
+            axis2MessageContext.getEnvelope().getBody().getFirstChildWithName(new QName("http://ws.apache.org/commons/ns/payload","text")).setText(responseBody);
 
-            OMElement textElement = OMAbstractFactory.getOMFactory().createOMElement("text", null);
-            textElement.setText(responseBody);
-            axis2MessageContext.getEnvelope().getBody().addChild(textElement);
-
-            // Close the HttpClient
-            httpClient.close();
         } catch (Exception e) {
-            log.error("Exception occured in the CustomHttpClient class mediator", e);
-            throw new SynapseException("Exception occured in the CustomHttpClient class mediator");
+            handleException("Exception occured in the CustomHttpClient class mediator",e);
         }
         return true;
+    }
+
+    private static SSLConnectionSocketFactory createSocketFactory() {
+        SSLContext sslContext;
+
+        String keyStorePath = CarbonUtils.getServerConfiguration()
+                .getFirstProperty(APIConstants.TRUST_STORE_LOCATION);
+        String keyStorePassword = CarbonUtils.getServerConfiguration()
+                .getFirstProperty(APIConstants.TRUST_STORE_PASSWORD);
+        try {
+            KeyStore trustStore = KeyStore.getInstance("JKS");
+            trustStore.load(new FileInputStream(keyStorePath), keyStorePassword.toCharArray());
+            sslContext = SSLContexts.custom().loadTrustMaterial(trustStore).build();
+            return new SSLConnectionSocketFactory(sslContext);
+        } catch (KeyStoreException e) {
+            handleException("Failed to read from Key Store", e);
+        } catch (IOException e) {
+            handleException("Key Store not found in " + keyStorePath, e);
+        } catch (CertificateException e) {
+            handleException("Failed to read Certificate", e);
+        } catch (NoSuchAlgorithmException e) {
+            handleException("Failed to load Key Store from " + keyStorePath, e);
+        } catch (KeyManagementException e) {
+            handleException("Failed to load key from" + keyStorePath, e);
+        }
+
+        return null;
+    }
+
+    private static PoolingHttpClientConnectionManager getPoolingHttpClientConnectionManager(){
+
+        PoolingHttpClientConnectionManager poolManager;
+        SSLConnectionSocketFactory socketFactory = createSocketFactory();
+        org.apache.http.config.Registry<ConnectionSocketFactory> socketFactoryRegistry =
+                    RegistryBuilder.<ConnectionSocketFactory>create()
+                            .register(APIConstants.HTTPS_PROTOCOL, socketFactory).build();
+        poolManager = new PoolingHttpClientConnectionManager(socketFactoryRegistry);
+        return poolManager;
     }
 
     @Override
     public void init(SynapseEnvironment synapseEnvironment) {
 
-        keyStorePath = CarbonUtils.getServerConfiguration()
-                .getFirstProperty(APIConstants.TRUST_STORE_LOCATION);
-        keyStorePassword = CarbonUtils.getServerConfiguration()
-                .getFirstProperty(APIConstants.TRUST_STORE_PASSWORD);
-
-        KeyStore trustStore = null;
+        PoolingHttpClientConnectionManager pool = null;
         try {
-            trustStore = KeyStore.getInstance("JKS");
-            trustStore.load(Files.newInputStream(Paths.get(keyStorePath)), keyStorePassword.toCharArray());
-            SSLContext sslContext = SSLContexts.custom().loadTrustMaterial(trustStore).build();
+            pool = getPoolingHttpClientConnectionManager();
 
+            pool.setMaxTotal(Integer.parseInt(maxTotal));
+            pool.setDefaultMaxPerRoute(Integer.parseInt(defaultMaxPerRoute));
+
+            RequestConfig config = RequestConfig.custom()
+                    .setConnectTimeout(Integer.parseInt(connectionTimeout))
+                    .setConnectionRequestTimeout(Integer.parseInt(connectionRequestTimeout))
+                    .setSocketTimeout(Integer.parseInt(socketTimeout)).build();
+
+            HttpClientBuilder clientBuilder = HttpClients.custom().setConnectionManager(pool)
+                    .setDefaultRequestConfig(config);
+
+            // Create an HttpClient instance
+            httpClient = clientBuilder.build();
         } catch (Exception e) {
-            throw new SynapseException(e);
+            handleException("CustomHttpClient class mediator initialisation failed ",e);
         }
     }
 
     @Override
     public void destroy() {
+        try {
+            httpClient.close();
+        } catch (IOException e) {
+            throw new RuntimeException(e);
+        }
+    }
 
+    public static void handleException(String msg, Throwable t) throws SynapseException {
+        log.error(msg,t);
+        throw new SynapseException(msg, t);
+    }
+
+    public String getDefaultMaxPerRoute() {
+        return defaultMaxPerRoute;
+    }
+
+    public void setDefaultMaxPerRoute(String defaultMaxPerRoute) {
+        this.defaultMaxPerRoute = defaultMaxPerRoute;
+    }
+
+    public String getMaxTotal() {
+        return maxTotal;
+    }
+
+    public void setMaxTotal(String maxTotal) {
+        this.maxTotal = maxTotal;
+    }
+
+    public String getConnectionTimeout() {
+        return connectionTimeout;
+    }
+
+    public void setConnectionTimeout(String connectionTimeout) {
+        this.connectionTimeout = connectionTimeout;
+    }
+
+    public String getConnectionRequestTimeout() {
+        return connectionRequestTimeout;
+    }
+
+    public void setConnectionRequestTimeout(String connectionRequestTimeout) {
+        this.connectionRequestTimeout = connectionRequestTimeout;
+    }
+
+    public String getSocketTimeout() {
+        return socketTimeout;
+    }
+
+    public void setSocketTimeout(String socketTimeout) {
+        this.socketTimeout = socketTimeout;
     }
 }
