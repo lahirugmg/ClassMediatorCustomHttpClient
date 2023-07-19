@@ -1,6 +1,7 @@
 package org.custom;
 
 import org.apache.axiom.om.OMAbstractFactory;
+import org.apache.axiom.om.OMNamespace;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.apache.http.HttpEntity;
@@ -80,7 +81,16 @@ public class CustomHttpClient extends AbstractMediator implements ManagedLifecyc
             HttpEntity responseEntity = response.getEntity();
             responseEntity.getContent();
             String responseBody = EntityUtils.toString(responseEntity);
-            axis2MessageContext.getEnvelope().getBody().getFirstChildWithName(new QName("http://ws.apache.org/commons/ns/payload","text")).setText(responseBody);
+            axis2MessageContext.getEnvelope().getBody().getFirstElement().detach();
+            // Define the namespace URI and prefix
+            String namespaceURI = "http://ws.apache.org/commons/ns/payload";
+            String namespacePrefix = "xmlns";
+
+            // Create an OMNamespace with the namespace URI and prefix
+            OMNamespace namespace = OMAbstractFactory.getOMFactory().createOMNamespace(namespaceURI, namespacePrefix);
+            OMElement textElement = OMAbstractFactory.getOMFactory().createOMElement("text", namespace);
+            textElement.setText(responseBody);
+            axis2MessageContext.getEnvelope().getBody().addChild(textElement);
 
         } catch (Exception e) {
             handleException("Exception occured in the CustomHttpClient class mediator",e);
