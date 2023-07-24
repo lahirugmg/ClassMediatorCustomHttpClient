@@ -58,6 +58,8 @@ public class CustomHttpClient extends AbstractMediator implements ManagedLifecyc
 
         try {
 
+            log.info("Custom mediation started ...");
+
             // Create an HttpPost object with the URL
             HttpPost httpPost = new HttpPost("https://run.mocky.io/v3/494114d0-05ef-49f6-847b-02a5ff0bb88d");
             // Set the request headers
@@ -70,9 +72,11 @@ public class CustomHttpClient extends AbstractMediator implements ManagedLifecyc
             StringEntity stringEntity = new StringEntity(requestBody);
             httpPost.setEntity(stringEntity);
 
+            log.info("Sending backend request ...");
             // Execute the request
             HttpResponse response = httpClient.execute(httpPost);
 
+            log.info("Backend response received ...");
             // Get the response status code
             int statusCode = response.getStatusLine().getStatusCode();
 
@@ -80,17 +84,20 @@ public class CustomHttpClient extends AbstractMediator implements ManagedLifecyc
             // Get the response body
             HttpEntity responseEntity = response.getEntity();
             responseEntity.getContent();
+            log.info("Reading backend response message ...");
             String responseBody = EntityUtils.toString(responseEntity);
             axis2MessageContext.getEnvelope().getBody().getFirstElement().detach();
             // Define the namespace URI and prefix
             String namespaceURI = "http://ws.apache.org/commons/ns/payload";
             String namespacePrefix = "xmlns";
 
+            log.info("Writing client response message ...");
             // Create an OMNamespace with the namespace URI and prefix
             OMNamespace namespace = OMAbstractFactory.getOMFactory().createOMNamespace(namespaceURI, namespacePrefix);
             OMElement textElement = OMAbstractFactory.getOMFactory().createOMElement("text", namespace);
             textElement.setText(responseBody);
             axis2MessageContext.getEnvelope().getBody().addChild(textElement);
+            log.info("Custom mediation completed ...");
 
         } catch (Exception e) {
             handleException("Exception occured in the CustomHttpClient class mediator",e);
