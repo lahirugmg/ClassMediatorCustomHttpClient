@@ -4,6 +4,7 @@ import org.apache.axiom.om.OMAbstractFactory;
 import org.apache.axiom.om.OMNamespace;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
+import org.apache.http.Header;
 import org.apache.http.HttpEntity;
 import org.apache.http.client.config.RequestConfig;
 import org.apache.http.client.methods.HttpPost;
@@ -72,7 +73,14 @@ public class CustomHttpClient extends AbstractMediator implements ManagedLifecyc
             StringEntity stringEntity = new StringEntity(requestBody);
             httpPost.setEntity(stringEntity);
 
-            log.info("Sending backend request ...");
+            log.info("Sending backend request ... \n URI: " + httpPost.getURI()
+                    + " \n Content length: " + httpPost.getEntity().toString().length() );
+
+            String headersString = " ";
+            for (Header header: httpPost.getAllHeaders()) {
+                headersString = " " + header.toString();
+            }
+            log.info("Headers: " + headersString);
             // Execute the request
             HttpResponse response = httpClient.execute(httpPost);
 
