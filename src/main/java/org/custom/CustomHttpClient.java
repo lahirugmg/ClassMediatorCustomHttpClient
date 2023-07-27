@@ -67,14 +67,14 @@ public class CustomHttpClient extends AbstractMediator implements ManagedLifecyc
             httpPost.setHeader("Content-Type", "text/plain");
 
             org.apache.axis2.context.MessageContext axis2MessageContext = ((Axis2MessageContext) messageContext).getAxis2MessageContext();
-            String requestBody = axis2MessageContext.getEnvelope().getBody().getText();
+            String requestBody = axis2MessageContext.getEnvelope().getBody().getFirstElement().getText();
 
             // Set the request body
             StringEntity stringEntity = new StringEntity(requestBody);
             httpPost.setEntity(stringEntity);
 
             log.info("Sending backend request ... \n URI: " + httpPost.getURI()
-                    + " \n Content length: " + httpPost.getEntity().toString().length() );
+                    + " \n Content length: " + requestBody.length() );
 
             String headersString = " ";
             for (Header header: httpPost.getAllHeaders()) {
